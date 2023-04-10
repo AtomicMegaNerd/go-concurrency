@@ -13,21 +13,22 @@ func main() {
 	revOrdCh := make(chan order)
 	validOdCh := make(chan order)
 	invalidOrdCh := make(chan invalidOrder)
+
 	go receiveOrders(revOrdCh)
 	go validateOrders(revOrdCh, validOdCh, invalidOrdCh)
 
 	wg.Add(1)
-	go func() {
-		order := <-validOdCh
-		fmt.Printf("Valid order received: %v\n", order)
-		wg.Done()
-	}()
 
-	go func() {
-		order := <-invalidOrdCh
-		fmt.Printf("Invalid order recieved: %v, Issue %v\n", order.order, order.err)
+	go func(valCh <-chan order, invCh <-chan invalidOrder) {
+		select {
+		case order := <-valCh:
+			fmt.Printf("Valid order received: %v\n", order)
+		case order := <-invCh:
+			fmt.Printf("Invalid order received: %v, Issue %v\n", order.order, order.err)
+		}
 		wg.Done()
-	}()
+	}(validOdCh, invalidOrdCh)
+
 	wg.Wait()
 }
 
