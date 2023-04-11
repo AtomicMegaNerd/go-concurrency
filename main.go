@@ -10,16 +10,11 @@ import (
 
 func main() {
 	wg := &sync.WaitGroup{}
-	revOrdCh := make(chan order)
-	validOdCh := make(chan order)
-	invalidOrdCh := make(chan invalidOrder)
-
-	go receiveOrders(revOrdCh)
-	go validateOrders(revOrdCh, validOdCh, invalidOrdCh)
+	in := receiveOrders()
+	out, errCh := validateOrders(in)
 
 	wg.Add(1)
 	go func(valCh <-chan order, invCh <-chan invalidOrder) {
-		// This code is really gross... there HAS to be a better way
 	loop: // Label for our break
 		for {
 			select {
@@ -38,40 +33,52 @@ func main() {
 			}
 		}
 		wg.Done()
-	}(validOdCh, invalidOrdCh)
+	}(out, errCh)
 
 	wg.Wait()
 }
 
 // I added the directional restrictions to the channels myself
-func validateOrders(in <-chan order, out chan<- order, errCh chan<- invalidOrder) {
+// We are using the encapsulation of goroutines pattern here..
+func validateOrders(in <-chan order) (<-chan order, <-chan invalidOrder) {
+	out := make(chan order)
+	errCh := make(chan invalidOrder, 1) // buffered error channel
+
 	// We can range over our in channel
-	for order := range in {
-		if order.Quantity <= 0 {
-			errCh <- invalidOrder{
-				order: order, err: errors.New("quantity must be greater than zero"),
+	go func() {
+		for order := range in {
+			if order.Quantity <= 0 {
+				errCh <- invalidOrder{
+					order: order, err: errors.New("quantity must be greater than zero"),
+				}
+			} else {
+				out <- order
 			}
-		} else {
-			out <- order
 		}
-	}
+		close(out)
+		close(errCh)
+	}()
 	// Close the channels after we sent the messages to them
-	close(out)
-	close(errCh)
+	return out, errCh
 }
 
-func receiveOrders(out chan<- order) {
-	for _, rawOrder := range rawOrders {
-		var newOrder order
-		err := json.Unmarshal([]byte(rawOrder), &newOrder)
-		if err != nil {
-			log.Print(err)
-			continue
+// We are using the encapsulation of goroutines pattern here..
+func receiveOrders() <-chan order {
+	out := make(chan order)
+
+	go func() {
+		for _, rawOrder := range rawOrders {
+			var newOrder order
+			err := json.Unmarshal([]byte(rawOrder), &newOrder)
+			if err != nil {
+				log.Print(err)
+				continue
+			}
+			out <- newOrder
 		}
-		out <- newOrder
-	}
-	// Close the channel after we have received the orders
-	close(out)
+		close(out)
+	}()
+	return out
 }
 
 var rawOrders = []string{
