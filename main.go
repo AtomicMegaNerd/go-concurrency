@@ -18,13 +18,24 @@ func main() {
 	go validateOrders(revOrdCh, validOdCh, invalidOrdCh)
 
 	wg.Add(1)
-
 	go func(valCh <-chan order, invCh <-chan invalidOrder) {
-		select {
-		case order := <-valCh:
-			fmt.Printf("Valid order received: %v\n", order)
-		case order := <-invCh:
-			fmt.Printf("Invalid order received: %v, Issue %v\n", order.order, order.err)
+		// This code is really gross... there HAS to be a better way
+	loop: // Label for our break
+		for {
+			select {
+			case order, ok := <-valCh:
+				if ok {
+					fmt.Printf("Valid order received: %v\n", order)
+				} else {
+					break loop
+				}
+			case order, ok := <-invCh:
+				if ok {
+					fmt.Printf("Invalid order received: %v, Issue %v\n", order.order, order.err)
+				} else {
+					break loop
+				}
+			}
 		}
 		wg.Done()
 	}(validOdCh, invalidOrdCh)
@@ -34,14 +45,19 @@ func main() {
 
 // I added the directional restrictions to the channels myself
 func validateOrders(in <-chan order, out chan<- order, errCh chan<- invalidOrder) {
-	order := <-in
-	if order.Quantity <= 0 {
-		errCh <- invalidOrder{
-			order: order, err: errors.New("quantity must be greater than zero"),
+	// We can range over our in channel
+	for order := range in {
+		if order.Quantity <= 0 {
+			errCh <- invalidOrder{
+				order: order, err: errors.New("quantity must be greater than zero"),
+			}
+		} else {
+			out <- order
 		}
-	} else {
-		out <- order
 	}
+	// Close the channels after we sent the messages to them
+	close(out)
+	close(errCh)
 }
 
 func receiveOrders(out chan<- order) {
@@ -54,6 +70,8 @@ func receiveOrders(out chan<- order) {
 		}
 		out <- newOrder
 	}
+	// Close the channel after we have received the orders
+	close(out)
 }
 
 var rawOrders = []string{
