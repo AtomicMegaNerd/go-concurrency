@@ -13,38 +13,33 @@ func main() {
 	receivedCh := receiveOrders()
 	validCh, errCh := validateOrders(receivedCh)
 	reservedCh := reserveInventory(validCh)
-	filledCh := fillOrders(reservedCh)
+	fillOrders(reservedCh, wg)
 
-	wg.Add(2)
+	wg.Add(1)
 	go func(errCh <-chan invalidOrder) {
 		for order := range errCh {
 			fmt.Printf("Invalid order received: %v. Issue: %v\n", order.order, order.err)
 		}
-
 		wg.Done()
 	}(errCh)
-
-	go func(filledCh <-chan order) {
-		for order := range filledCh {
-			fmt.Printf("Order has been completed: %v", order)
-		}
-		wg.Done()
-	}(filledCh)
 
 	wg.Wait()
 }
 
-func fillOrders(reservedCh <-chan order) <-chan order {
-	filledCh := make(chan order)
-	go func() {
-		for order := range reservedCh {
-			order.Status = filled
-			filledCh <- order
-		}
-		close(filledCh)
-	}()
-
-	return filledCh
+// ***Multiple Consumer***
+func fillOrders(reservedCh <-chan order, wg *sync.WaitGroup) {
+	const workers = 3
+	wg.Add(workers)
+	// Multiple consumer
+	for i := 0; i < workers; i++ {
+		go func() {
+			for order := range reservedCh {
+				order.Status = filled
+				fmt.Printf("Order has been completed: %v", order)
+			}
+			wg.Done()
+		}()
+	}
 }
 
 // ***Multiple producer***
