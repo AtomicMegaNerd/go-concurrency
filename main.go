@@ -32,6 +32,7 @@ func main() {
 	wg.Wait()
 }
 
+// *** Single Consumer ****
 func reserveInteventory(validCh <-chan order) <-chan order {
 	reservedCh := make(chan order)
 	go func() {
@@ -45,6 +46,7 @@ func reserveInteventory(validCh <-chan order) <-chan order {
 	return reservedCh
 }
 
+// *** Single Producer ****
 // I added the directional restrictions to the channels myself
 // We are using the encapsulation of goroutines pattern here..
 func validateOrders(receivedCh <-chan order) (<-chan order, <-chan invalidOrder) {
