@@ -13,45 +13,68 @@ func main() {
 	receivedCh := receiveOrders()
 	validCh, errCh := validateOrders(receivedCh)
 	reservedCh := reserveInventory(validCh)
+	filledCh := fillOrders(reservedCh)
 
-	wg.Add(1)
+	wg.Add(2)
 	go func(errCh <-chan invalidOrder) {
 		for order := range errCh {
 			fmt.Printf("Invalid order received: %v. Issue: %v\n", order.order, order.err)
 		}
+
 		wg.Done()
 	}(errCh)
 
-	// *** Multiple Consumer ****
-	// May lose ordering but adds parallelism
-	const workers = 3
-	wg.Add(workers)
-	for i := 0; i < workers; i++ {
-		go func(reservedCh <-chan order) {
-			for order := range reservedCh {
-				fmt.Printf("Inventory reserved for: %v\n", order)
-			}
-			wg.Done()
-		}(reservedCh)
-	}
+	go func(filledCh <-chan order) {
+		for order := range filledCh {
+			fmt.Printf("Order has been completed: %v", order)
+		}
+		wg.Done()
+	}(filledCh)
 
 	wg.Wait()
 }
 
+func fillOrders(reservedCh <-chan order) <-chan order {
+	filledCh := make(chan order)
+	go func() {
+		for order := range reservedCh {
+			order.Status = filled
+			filledCh <- order
+		}
+		close(filledCh)
+	}()
+
+	return filledCh
+}
+
+// ***Multiple producer***
+// With multiple producers we need a supervisory function
+// that closes the channel once all of the workers have
+// sent their messages to the channel.
 func reserveInventory(validCh <-chan order) <-chan order {
 	reservedCh := make(chan order)
+	wg := &sync.WaitGroup{}
+
+	const workers = 3
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			for order := range validCh {
+				order.Status = reserved
+				reservedCh <- order
+			}
+			wg.Done()
+		}()
+	}
+
 	go func() {
-		for order := range validCh {
-			order.Status = reserved
-			reservedCh <- order
-		}
+		wg.Wait()
 		close(reservedCh)
 	}()
 
 	return reservedCh
 }
 
-// *** Single Producer ****
 // I added the directional restrictions to the channels myself
 // We are using the encapsulation of goroutines pattern here..
 func validateOrders(receivedCh <-chan order) (<-chan order, <-chan invalidOrder) {
