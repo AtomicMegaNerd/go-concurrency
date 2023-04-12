@@ -118,4 +118,7 @@ var rawOrders = []string{
 	`{"productCode": 2222, "quantity": 42.3, "status": 1}`,
 	`{"productCode": 3333, "quantity": 19, "status": 1}`,
 	`{"productCode": 4444, "quantity": 8, "status": 1}`,
+	`{"productCode": 5555, "quantity": 12, "status": 1}`,
+	`{"productCode": 6666, "quantity": 27, "status": 1}`,
+	`{"productCode": 7777, "quantity": 1, "status": 1}`,
 }
