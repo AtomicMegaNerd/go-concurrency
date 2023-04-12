@@ -10,61 +10,68 @@ import (
 
 func main() {
 	wg := &sync.WaitGroup{}
-	in := receiveOrders()
-	out, errCh := validateOrders(in)
+	receivedCh := receiveOrders()
+	validCh, errCh := validateOrders(receivedCh)
+	reservedCh := reserveInteventory(validCh)
 
-	wg.Add(1)
-	go func(valCh <-chan order, invCh <-chan invalidOrder) {
-	loop: // Label for our break
-		for {
-			select {
-			case order, ok := <-valCh:
-				if ok {
-					fmt.Printf("Valid order received: %v\n", order)
-				} else {
-					break loop
-				}
-			case order, ok := <-invCh:
-				if ok {
-					fmt.Printf("Invalid order received: %v, Issue %v\n", order.order, order.err)
-				} else {
-					break loop
-				}
-			}
+	wg.Add(2)
+	go func(errCh <-chan invalidOrder) {
+		for order := range errCh {
+			fmt.Printf("Invalid order received: %v. Issue: %v\n", order.order, order.err)
 		}
 		wg.Done()
-	}(out, errCh)
+	}(errCh)
+
+	go func(reservedCh <-chan order) {
+		for order := range reservedCh {
+			fmt.Printf("Inventory reserved for: %v\n", order)
+		}
+		wg.Done()
+	}(reservedCh)
 
 	wg.Wait()
 }
 
+func reserveInteventory(validCh <-chan order) <-chan order {
+	reservedCh := make(chan order)
+	go func() {
+		for order := range validCh {
+			order.Status = reserved
+			reservedCh <- order
+		}
+		close(reservedCh)
+	}()
+
+	return reservedCh
+}
+
 // I added the directional restrictions to the channels myself
 // We are using the encapsulation of goroutines pattern here..
-func validateOrders(in <-chan order) (<-chan order, <-chan invalidOrder) {
-	out := make(chan order)
+func validateOrders(receivedCh <-chan order) (<-chan order, <-chan invalidOrder) {
+	validCh := make(chan order)
 	errCh := make(chan invalidOrder, 1) // buffered error channel
 
 	// We can range over our in channel
 	go func() {
-		for order := range in {
+		for order := range receivedCh {
 			if order.Quantity <= 0 {
 				errCh <- invalidOrder{
 					order: order, err: errors.New("quantity must be greater than zero"),
 				}
 			} else {
-				out <- order
+				validCh <- order
 			}
 		}
-		close(out)
+		close(validCh)
 		close(errCh)
 	}()
 	// Close the channels after we sent the messages to them
-	return out, errCh
+	return validCh, errCh
 }
 
 // We are using the encapsulation of goroutines pattern here..
 func receiveOrders() <-chan order {
-	out := make(chan order)
+	receivedCh := make(chan order)
 
 	go func() {
 		for _, rawOrder := range rawOrders {
@@ -74,11 +81,11 @@ func receiveOrders() <-chan order {
 				log.Print(err)
 				continue
 			}
-			out <- newOrder
+			receivedCh <- newOrder
 		}
-		close(out)
+		close(receivedCh)
 	}()
-	return out
+	return receivedCh
 }
 
 var rawOrders = []string{
