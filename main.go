@@ -12,9 +12,9 @@ func main() {
 	wg := &sync.WaitGroup{}
 	receivedCh := receiveOrders()
 	validCh, errCh := validateOrders(receivedCh)
-	reservedCh := reserveInteventory(validCh)
+	reservedCh := reserveInventory(validCh)
 
-	wg.Add(2)
+	wg.Add(1)
 	go func(errCh <-chan invalidOrder) {
 		for order := range errCh {
 			fmt.Printf("Invalid order received: %v. Issue: %v\n", order.order, order.err)
@@ -22,18 +22,23 @@ func main() {
 		wg.Done()
 	}(errCh)
 
-	go func(reservedCh <-chan order) {
-		for order := range reservedCh {
-			fmt.Printf("Inventory reserved for: %v\n", order)
-		}
-		wg.Done()
-	}(reservedCh)
+	// *** Multiple Consumer ****
+	// May lose ordering but adds parallelism
+	const workers = 3
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(reservedCh <-chan order) {
+			for order := range reservedCh {
+				fmt.Printf("Inventory reserved for: %v\n", order)
+			}
+			wg.Done()
+		}(reservedCh)
+	}
 
 	wg.Wait()
 }
 
-// *** Single Consumer ****
-func reserveInteventory(validCh <-chan order) <-chan order {
+func reserveInventory(validCh <-chan order) <-chan order {
 	reservedCh := make(chan order)
 	go func() {
 		for order := range validCh {
